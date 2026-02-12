@@ -150,7 +150,7 @@ def format_step_2(qr: QRState, state_dir: str) -> str:
         ]
 
         mode_script = get_mode_script_path("developer/exec_implement.py")
-        invoke_cmd = f"python3 -m {mode_script} --step 1 --state-dir {state_dir} --qr-fail --qr-iteration {qr.iteration}"
+        invoke_cmd = f"python3 -m {mode_script} --step 1 --state-dir {state_dir}"
 
         actions.append(subagent_dispatch(
             agent_type="developer",
@@ -265,14 +265,18 @@ def format_qr_verify(step: int, phase: str, state_dir: str, qr: QRState) -> str:
 
     qr_state = load_qr_state(state_dir, phase)
     if not qr_state or "items" not in qr_state:
-        body = f"Error: qr-{phase}.json not found or malformed in {state_dir}"
-        return format_step(body, title=title)
+        decompose_step = step - 1
+        body = f"Error: qr-{phase}.json not found or malformed. Routing back to decompose step."
+        retry_cmd = f"python3 -m {MODULE_PATH} --step {decompose_step} --state-dir {state_dir}"
+        return format_step(body, retry_cmd, title=title)
 
+    iteration = qr_state.get("iteration", 1)
     if qr.state == LoopState.RETRY:
-        increment_qr_iteration(state_dir, phase)
+        new_iter = increment_qr_iteration(state_dir, phase)
+        if new_iter is not None:
+            iteration = new_iter
 
     # Dispatch only items at blocking severity for current iteration
-    iteration = qr_state.get("iteration", 1)
     items = query_items(qr_state, by_status("TODO", "FAIL"), by_blocking_severity(iteration))
     if not items:
         next_step = step + 1
@@ -393,7 +397,7 @@ def format_step_6(qr: QRState, state_dir: str) -> str:
             "",
         ]
 
-        invoke_cmd = f"python3 -m {mode_script} --step 1 --state-dir {state_dir} --qr-fail --qr-iteration {qr.iteration}"
+        invoke_cmd = f"python3 -m {mode_script} --step 1 --state-dir {state_dir}"
         actions.append(subagent_dispatch(
             agent_type="technical-writer",
             command=invoke_cmd,
@@ -522,6 +526,17 @@ def main():
         plan_path.write_text(json.dumps({
             "schema_version": 2,
             "overview": {"problem": "", "approach": ""},
+            "planning_context": {
+                "decisions": [],
+                "rejected_alternatives": [],
+                "constraints": [],
+                "risks": [],
+            },
+            "invisible_knowledge": {
+                "system": "",
+                "invariants": [],
+                "tradeoffs": [],
+            },
             "milestones": [],
             "waves": [],
         }, indent=2))
